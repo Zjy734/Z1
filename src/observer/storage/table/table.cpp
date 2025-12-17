@@ -50,17 +50,16 @@ RC Table::destroy(const char *dir)
     return RC::INVALID_ARGUMENT;
   }
   
-  const char *table_name = name();
-  LOG_INFO("Begin to destroy table: %s", table_name);
+  LOG_INFO("Begin to destroy table: %s", name());
   
-  // 1. 尝试刷新脏页（如果失败也继续）
+  // 1. 先刷新所有脏页到磁盘
   RC rc = sync();
   if (rc != RC::SUCCESS) {
-    LOG_WARN("Failed to sync table before destroy: %s, rc=%s (continuing anyway)", 
-             table_name, strrc(rc));
+    LOG_ERROR("Failed to sync table before destroy: %s, rc=%s", name(), strrc(rc));
+    return rc;
   }
   
-  // 2. 删除所有索引文件
+  // 2. 删除所有索引文件（不操作内存中的 Index 对象）
   const int index_num = table_meta_.index_num();
   for (int i = 0; i < index_num; i++) {
     const IndexMeta *index_meta = table_meta_.index(i);
@@ -68,42 +67,47 @@ RC Table::destroy(const char *dir)
       continue;
     }
     
-    std::string index_file = table_index_file(dir, table_name, index_meta->name());
+    // 只删除索引文件，不操作内存中的 Index 对象
+    std::string index_file = table_index_file(dir, name(), index_meta->name());
     if (::unlink(index_file.c_str()) != 0) {
-      if (errno != ENOENT) {
-        LOG_WARN("Failed to remove index file: %s, errno=%d:%s", 
-                 index_file.c_str(), errno, strerror(errno));
+      if (errno != ENOENT) {  // 文件不存在不算错误
+        LOG_ERROR("Failed to remove index file: %s, errno=%d:%s", 
+                  index_file.c_str(), errno, strerror(errno));
+        return RC::IOERR_WRITE;
       }
     } else {
-      LOG_INFO("Removed index file: %s", index_file.c_str());
+      LOG_INFO("Successfully removed index file: %s", index_file.c_str());
     }
   }
   
-  // 3. 删除数据文件
-  std::string data_file = table_data_file(dir, table_name);
+  // 3. 删除表数据文件 (.data)
+  std::string data_file = table_data_file(dir, name());
   if (::unlink(data_file.c_str()) != 0) {
     if (errno != ENOENT) {
-      LOG_WARN("Failed to remove data file: %s, errno=%d:%s", 
-               data_file.c_str(), errno, strerror(errno));
+      LOG_ERROR("Failed to remove data file: %s, errno=%d:%s", 
+                data_file.c_str(), errno, strerror(errno));
+      return RC::IOERR_WRITE;
     }
   } else {
-    LOG_INFO("Removed data file: %s", data_file.c_str());
+    LOG_INFO("Successfully removed data file: %s", data_file.c_str());
   }
   
-  // 4. 删除元数据文件
-  std::string meta_file = table_meta_file(dir, table_name);
+  // 4. 删除表元数据文件 (.table)
+  std::string meta_file = table_meta_file(dir, name());
   if (::unlink(meta_file.c_str()) != 0) {
     if (errno != ENOENT) {
-      LOG_WARN("Failed to remove meta file: %s, errno=%d:%s", 
-               meta_file.c_str(), errno, strerror(errno));
+      LOG_ERROR("Failed to remove meta file: %s, errno=%d:%s", 
+                meta_file.c_str(), errno, strerror(errno));
+      return RC::IOERR_WRITE;
     }
   } else {
-    LOG_INFO("Removed meta file: %s", meta_file.c_str());
+    LOG_INFO("Successfully removed meta file: %s", meta_file.c_str());
   }
   
-  LOG_INFO("Successfully destroyed table: %s", table_name);
+  LOG_INFO("Successfully destroyed table: %s", name());
   return RC::SUCCESS;
 }
+
 
 
 

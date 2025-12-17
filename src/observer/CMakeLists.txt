@@ -28,43 +28,13 @@ FOREACH (F ${ALL_SRC})
 
 ENDFOREACH (F)
 
-# 查找 Libevent - 兼容多种环境
 SET(LIBEVENT_STATIC_LINK TRUE)
-
-# 首先尝试 CONFIG 模式
-FIND_PACKAGE(Libevent CONFIG QUIET)
-
-# 如果失败，使用 MODULE 模式或手动查找
-IF(NOT Libevent_FOUND)
-    # 尝试查找库文件
-    FIND_LIBRARY(LIBEVENT_CORE_LIBRARY NAMES event_core event libevent)
-    FIND_LIBRARY(LIBEVENT_PTHREADS_LIBRARY NAMES event_pthreads)
-    FIND_PATH(LIBEVENT_INCLUDE_DIR event2/event.h PATH_SUFFIXES include)
-    
-    IF(LIBEVENT_CORE_LIBRARY AND LIBEVENT_INCLUDE_DIR)
-        SET(LIBEVENT_FOUND TRUE)
-        SET(LIBEVENT_LIBRARIES ${LIBEVENT_CORE_LIBRARY})
-        IF(LIBEVENT_PTHREADS_LIBRARY)
-            LIST(APPEND LIBEVENT_LIBRARIES ${LIBEVENT_PTHREADS_LIBRARY})
-        ENDIF()
-        INCLUDE_DIRECTORIES(${LIBEVENT_INCLUDE_DIR})
-        MESSAGE(STATUS "Found Libevent: ${LIBEVENT_LIBRARIES}")
-    ELSE()
-        MESSAGE(FATAL_ERROR "Could not find Libevent library")
-    ENDIF()
-ENDIF()
-
+# 注释掉原来的 FIND_PACKAGE，使用更简单的方式
+# FIND_PACKAGE(Libevent CONFIG REQUIRED)
 FIND_PACKAGE(jsoncpp CONFIG REQUIRED)
 
-# 根据 Libevent 的查找方式设置链接库
-IF(TARGET libevent::core)
-    # CONFIG 模式成功，使用 imported targets
-    SET(LIBRARIES common pthread dl libevent::core libevent::pthreads)
-ELSE()
-    # 手动查找模式，直接链接库
-    SET(LIBRARIES common pthread dl ${LIBEVENT_LIBRARIES})
-ENDIF()
-
+# 直接链接 Libevent 库（假设系统已安装）
+SET(LIBRARIES common pthread dl event_core event_pthreads)
 
 
 # 指定目标文件位置
