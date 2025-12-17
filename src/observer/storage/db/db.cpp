@@ -48,6 +48,38 @@ Db::~Db()
   }
   LOG_INFO("Db has been closed: %s", name_.c_str());
 }
+RC Db::drop_table(const char *table_name)
+{
+  if (table_name == nullptr || common::is_blank(table_name)) {
+    LOG_WARN("Invalid table name");
+    return RC::INVALID_ARGUMENT;
+  }
+  
+  // 查找表是否存在
+  auto it = opened_tables_.find(table_name);
+  if (it == opened_tables_.end()) {
+    LOG_WARN("Table not found: %s", table_name);
+    return RC::SCHEMA_TABLE_NOT_EXIST;
+  }
+  
+  Table *table = it->second;
+  
+  // 让表自己销毁所有资源（数据文件、索引文件等）
+  RC rc = table->destroy(path_.c_str());
+  if (rc != RC::SUCCESS) {
+    LOG_ERROR("Failed to destroy table: %s, rc=%s", table_name, strrc(rc));
+    return rc;
+  }
+  
+  // 从打开的表列表中移除
+  opened_tables_.erase(it);
+  
+  // 释放表对象内存
+  delete table;
+  
+  LOG_INFO("Successfully dropped table: %s", table_name);
+  return RC::SUCCESS;
+}
 
 RC Db::init(const char *name, const char *dbpath, const char *trx_kit_name, const char *log_handler_name, const char *storage_engine)
 {

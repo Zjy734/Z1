@@ -47,7 +47,12 @@ class Db
 public:
   Db() = default;
   ~Db();
-
+  /**
+   * @brief 删除表及其所有相关资源
+   * @param table_name 表名
+   * @return RC 操作结果
+   */
+  RC drop_table(const char *table_name);
   /**
    * @brief 初始化一个数据库实例
    * @details 从指定的目录下加载指定名称的数据库。这里就会加载dbpath目录下的数据。

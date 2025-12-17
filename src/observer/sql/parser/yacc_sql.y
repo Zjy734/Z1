@@ -280,7 +280,18 @@ drop_table_stmt:    /*drop table 语句的语法解析树*/
     DROP TABLE ID {
       $$ = new ParsedSqlNode(SCF_DROP_TABLE);
       $$->drop_table.relation_name = $3;
+      free($3);
     };
+drop_index_stmt:      /*drop index 语句的语法解析树*/
+    DROP INDEX ID ON ID
+    {
+      $$ = new ParsedSqlNode(SCF_DROP_INDEX);
+      $$->drop_index.index_name = $3;
+      $$->drop_index.relation_name = $5;
+      free($3);
+      free($5);
+    }
+    ;
 
 analyze_table_stmt:  /* analyze table 语法的语法解析树*/
     ANALYZE TABLE ID {
@@ -313,14 +324,8 @@ create_index_stmt:    /*create index 语句的语法解析树*/
     }
     ;
 
-drop_index_stmt:      /*drop index 语句的语法解析树*/
-    DROP INDEX ID ON ID
-    {
-      $$ = new ParsedSqlNode(SCF_DROP_INDEX);
-      $$->drop_index.index_name = $3;
-      $$->drop_index.relation_name = $5;
-    }
-    ;
+
+    
 create_table_stmt:    /*create table 语句的语法解析树*/
     CREATE TABLE ID LBRACE attr_def_list primary_key RBRACE storage_format
     {
@@ -342,6 +347,7 @@ create_table_stmt:    /*create table 语句的语法解析树*/
     }
     ;
     
+
 attr_def_list:
     attr_def
     {

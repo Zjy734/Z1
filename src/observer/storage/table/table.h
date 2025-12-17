@@ -49,7 +49,12 @@ public:
   // TODO: use TableEngine replace Table
   friend class TableEngine;
   friend class HeapTableEngine;
-
+  /**
+   * @brief 销毁表的所有资源，包括数据文件、索引文件、元数据文件等
+   * @param dir 数据库目录路径
+   * @return RC 操作结果
+   */
+  RC destroy(const char *dir);
   /**
    * 创建一个表
    * @param path 元数据保存的文件(完整路径)
