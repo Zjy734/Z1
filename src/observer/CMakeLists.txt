@@ -28,13 +28,35 @@ FOREACH (F ${ALL_SRC})
 
 ENDFOREACH (F)
 
-# 使用 pkg-config 查找 Libevent
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBEVENT REQUIRED libevent libevent_pthreads)
+# 尝试使用 CONFIG 模式查找 Libevent，如果失败则手动指定
+SET(LIBEVENT_STATIC_LINK TRUE)
+FIND_PACKAGE(Libevent CONFIG QUIET)
+
+# 如果 CONFIG 模式失败，手动查找库
+IF(NOT Libevent_FOUND)
+    MESSAGE(STATUS "Libevent CONFIG not found, trying manual search...")
+    FIND_LIBRARY(LIBEVENT_CORE_LIB NAMES event_core event)
+    FIND_LIBRARY(LIBEVENT_PTHREADS_LIB NAMES event_pthreads)
+    FIND_PATH(LIBEVENT_INCLUDE_DIR event2/event.h)
+    
+    IF(LIBEVENT_CORE_LIB AND LIBEVENT_PTHREADS_LIB AND LIBEVENT_INCLUDE_DIR)
+        SET(LIBEVENT_LIBRARIES ${LIBEVENT_CORE_LIB} ${LIBEVENT_PTHREADS_LIB})
+        INCLUDE_DIRECTORIES(${LIBEVENT_INCLUDE_DIR})
+        MESSAGE(STATUS "Found Libevent manually: ${LIBEVENT_LIBRARIES}")
+    ELSE()
+        MESSAGE(FATAL_ERROR "Could not find Libevent")
+    ENDIF()
+ENDIF()
+
 FIND_PACKAGE(jsoncpp CONFIG REQUIRED)
 
+# 设置链接库
+IF(Libevent_FOUND)
+    SET(LIBRARIES common pthread dl libevent::core libevent::pthreads)
+ELSE()
+    SET(LIBRARIES common pthread dl ${LIBEVENT_LIBRARIES})
+ENDIF()
 
-SET(LIBRARIES common pthread dl ${LIBEVENT_LIBRARIES})
 
 
 # 指定目标文件位置
