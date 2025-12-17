@@ -64,22 +64,23 @@ RC Db::drop_table(const char *table_name)
   
   Table *table = it->second;
   
-  // 让表自己销毁所有资源（数据文件、索引文件等）
+  // 重要：先从 map 中移除，避免后续操作访问到已删除的表
+  opened_tables_.erase(it);
+  
+  // 然后销毁表的资源（文件等）
   RC rc = table->destroy(path_.c_str());
   if (rc != RC::SUCCESS) {
     LOG_ERROR("Failed to destroy table: %s, rc=%s", table_name, strrc(rc));
-    return rc;
+    // 注意：即使失败也要删除对象，避免内存泄漏
   }
   
-  // 从打开的表列表中移除
-  opened_tables_.erase(it);
-  
-  // 释放表对象内存
+  // 最后释放表对象内存
   delete table;
   
   LOG_INFO("Successfully dropped table: %s", table_name);
-  return RC::SUCCESS;
+  return rc;
 }
+
 
 RC Db::init(const char *name, const char *dbpath, const char *trx_kit_name, const char *log_handler_name, const char *storage_engine)
 {
