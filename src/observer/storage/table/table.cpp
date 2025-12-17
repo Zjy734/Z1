@@ -56,10 +56,10 @@ RC Table::destroy(const char *dir)
   RC rc = sync();
   if (rc != RC::SUCCESS) {
     LOG_ERROR("Failed to sync table before destroy: %s, rc=%s", name(), strrc(rc));
-    return rc;
+    // 即使 sync 失败，我们也继续删除文件
   }
   
-  // 2. 删除所有索引文件
+  // 2. 删除所有索引文件（只删除文件，不操作内存对象）
   const int index_num = table_meta_.index_num();
   for (int i = 0; i < index_num; i++) {
     const IndexMeta *index_meta = table_meta_.index(i);
@@ -67,20 +67,13 @@ RC Table::destroy(const char *dir)
       continue;
     }
     
-    // 查找并删除索引（如果已加载）
-    Index *index = find_index(index_meta->name());
-    if (index != nullptr) {
-      // 索引可能有自己的清理逻辑，但我们主要是删除文件
-      delete index;
-    }
-    
-    // 删除索引文件
+    // 只删除索引文件，不操作内存中的索引对象
     std::string index_file = table_index_file(dir, name(), index_meta->name());
     if (::unlink(index_file.c_str()) != 0) {
       if (errno != ENOENT) {  // 文件不存在不算错误
-        LOG_ERROR("Failed to remove index file: %s, errno=%d:%s", 
+        LOG_WARN("Failed to remove index file: %s, errno=%d:%s", 
                   index_file.c_str(), errno, strerror(errno));
-        return RC::IOERR_WRITE;
+        // 继续删除其他文件，不返回错误
       }
     } else {
       LOG_INFO("Successfully removed index file: %s", index_file.c_str());
@@ -91,15 +84,15 @@ RC Table::destroy(const char *dir)
   std::string data_file = table_data_file(dir, name());
   if (::unlink(data_file.c_str()) != 0) {
     if (errno != ENOENT) {
-      LOG_ERROR("Failed to remove data file: %s, errno=%d:%s", 
+      LOG_WARN("Failed to remove data file: %s, errno=%d:%s", 
                 data_file.c_str(), errno, strerror(errno));
-      return RC::IOERR_WRITE;
+      // 继续删除其他文件
     }
   } else {
     LOG_INFO("Successfully removed data file: %s", data_file.c_str());
   }
   
-  // 4. 删除表元数据文件 (.table)
+  // 4. 删除表元数据文件 (.table) - 最后删除
   std::string meta_file = table_meta_file(dir, name());
   if (::unlink(meta_file.c_str()) != 0) {
     if (errno != ENOENT) {
