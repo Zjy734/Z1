@@ -130,6 +130,44 @@ public:
   string   get_string() const;
   string_t get_string_t() const;
   bool     get_boolean() const;
+  bool is_date_valid() const {
+  if (attr_type_ != AttrType::DATES) {
+    return false;
+  }
+  
+  int date = value_.int_value_;
+  int year = date / 10000;
+  int month = (date % 10000) / 100;
+  int day = date % 100;
+  
+  // 检查月份范围
+  if (month < 1 || month > 12) {
+    return false;
+  }
+  
+  // 检查日期范围
+  if (day < 1 || day > 31) {
+    return false;
+  }
+  
+  // 检查每月天数
+  int days_in_month[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  
+  // 闰年判断
+  if (month == 2) {
+    bool is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    if (is_leap) {
+      days_in_month[2] = 29;
+    }
+  }
+  
+  if (day > days_in_month[month]) {
+    return false;
+  }
+  
+  return true;
+}
+
 
 public:
   void set_int(int val);
