@@ -49,6 +49,12 @@ public:
   explicit Value(bool val);
   explicit Value(const char *s, int len = 0);
   explicit Value(const string_t &val);
+  
+  static Value from_date(int date_value) {
+    Value v;
+    v.set_date(date_value);
+    return v;
+  }
 
   Value(const Value &other);
   Value(Value &&other);
