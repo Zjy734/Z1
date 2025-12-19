@@ -12,8 +12,10 @@ See the Mulan PSL v2 for more details. */
 #include "common/lang/string.h"
 #include "common/type/attr_type.h"
 
-const char *ATTR_TYPE_NAME[] = {"undefined", "chars", "ints", "floats", "vectors", "booleans"};
+const char *ATTR_TYPE_NAME[] = {
+    "undefined", "chars", "ints", "floats", "booleans", "dates", "vectors", "nulls", "texts"};
 
+// 将属性类型转换为字符串
 const char *attr_type_to_string(AttrType type)
 {
   if (type >= AttrType::UNDEFINED && type < AttrType::MAXTYPE) {
@@ -32,12 +34,19 @@ AttrType attr_type_from_string(const char *s)
   return AttrType::UNDEFINED;
 }
 
-bool is_numerical_type(AttrType type)
+size_t attr_type_size(AttrType type)
 {
-  return (type == AttrType::INTS || type == AttrType::FLOATS);
+  switch (type) {
+    case AttrType::CHARS: return sizeof(char);
+    case AttrType::DATES:
+    case AttrType::INTS: return sizeof(int);
+    case AttrType::VECTORS: return VectorData::field_size;
+    case AttrType::FLOATS: return sizeof(float);
+    case AttrType::TEXTS: return TextData::field_size;
+    default: return -1;
+  }
 }
 
-bool is_string_type(AttrType type)
-{
-  return (type == AttrType::CHARS);
-}
+size_t TextData::field_size = offsetof(TextData, len) + sizeof(TextData::len);
+
+size_t VectorData::field_size = offsetof(VectorData, VectorData::dim) + sizeof(VectorData::dim);

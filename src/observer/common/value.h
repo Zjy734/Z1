@@ -36,6 +36,7 @@ public:
   friend class BooleanType;
   friend class CharType;
   friend class VectorType;
+  friend class DateType;
 
   Value() = default;
 
@@ -119,6 +120,12 @@ public:
   void set_string(const char *s, int len = 0);
   void set_empty_string(int len);
   void set_string_from_other(const Value &other);
+  void set_date(int val)  // ← 添加这个方法
+  {
+    attr_type_ = AttrType::DATES;
+    value_.int_value_ = val;
+    own_data_ = true;
+  }
 
 private:
   AttrType attr_type_ = AttrType::UNDEFINED;

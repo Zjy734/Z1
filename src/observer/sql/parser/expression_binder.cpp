@@ -12,12 +12,15 @@ See the Mulan PSL v2 for more details. */
 // Created by Wangyunlai on 2024/05/29.
 //
 
+#include <algorithm>
+#include <cstdio>
+
 #include "common/log/log.h"
 #include "common/lang/string.h"
-#include "common/lang/ranges.h"
 #include "sql/parser/expression_binder.h"
 #include "sql/expr/expression_iterator.h"
 
+using namespace std;
 using namespace common;
 
 Table *BinderContext::find_table(const char *table_name) const
@@ -87,7 +90,35 @@ RC ExpressionBinder::bind_expression(unique_ptr<Expression> &expr, vector<unique
     } break;
 
     case ExprType::AGGREGATION: {
-      ASSERT(false, "shouldn't be here");
+      return bind_aggregate_expression(expr, bound_expressions);
+    } break;
+
+    case ExprType::LIKE: {
+      return bind_like_expression(expr, bound_expressions);
+    } break;
+
+    case ExprType::VECTOR_DISTANCE_EXPR: {
+      return bind_vector_distance_expression(expr, bound_expressions);
+    } break;
+
+    case ExprType::IS: {
+      return bind_is_expression(expr, bound_expressions);
+    } break;
+
+    case ExprType::SUB_QUERY: {
+      return bind_sub_query_expression(expr, bound_expressions);
+    } break;
+
+    case ExprType::SPECIAL_PLACEHOLDER: {
+      if (nullptr == expr) {
+        return RC::SUCCESS;
+      }
+      bound_expressions.emplace_back(std::move(expr));
+      return RC::SUCCESS;
+    } break;
+
+    case ExprType::VALUES: {
+      return bind_values_expression(expr, bound_expressions);
     } break;
 
     default: {
@@ -96,6 +127,27 @@ RC ExpressionBinder::bind_expression(unique_ptr<Expression> &expr, vector<unique
     }
   }
   return RC::INTERNAL;
+}
+
+RC ExpressionBinder::bind_values_expression(
+    unique_ptr<Expression> &values_expr, vector<unique_ptr<Expression>> &bound_expressions)
+{
+  if (nullptr == values_expr) {
+    return RC::SUCCESS;
+  }
+
+  bound_expressions.emplace_back(std::move(values_expr));
+  return RC::SUCCESS;
+}
+
+RC ExpressionBinder::bind_sub_query_expression(
+    unique_ptr<Expression> &sub_query_expr, vector<unique_ptr<Expression>> &bound_expressions)
+{
+  if (nullptr == sub_query_expr) {
+    return RC::SUCCESS;
+  }
+  bound_expressions.emplace_back(std::move(sub_query_expr));
+  return RC::SUCCESS;
 }
 
 RC ExpressionBinder::bind_star_expression(
@@ -141,15 +193,39 @@ RC ExpressionBinder::bind_unbound_field_expression(
 
   const char *table_name = unbound_field_expr->table_name();
   const char *field_name = unbound_field_expr->field_name();
+  const char *alias = unbound_field_expr->alias();
+
+  // 在顶层，table_name 已经被解析为真实的表名
+  // 在顶层，field_name 已经被解析为真实的字段名
+  // 或者为空
 
   Table *table = nullptr;
   if (is_blank(table_name)) {
-    if (context_.query_tables().size() != 1) {
-      LOG_INFO("cannot determine table for field: %s", field_name);
-      return RC::SCHEMA_TABLE_NOT_EXIST;
+    // if (context_.query_tables().size() != 1) {
+    //   LOG_INFO("cannot determine table for field: %s", field_name);
+    //   return RC::SCHEMA_TABLE_NOT_EXIST;
+    // }
+
+    // table = context_.query_tables()[0];
+
+    // 由于子查询 **可能** 会引进外部的表，这里我们只能通过字段名来确定表。
+    bool found = false;
+    for (Table *table_ : context_.query_tables()) {
+      if (table_->table_meta().field(field_name) != nullptr) {
+        if (found) {
+          LOG_INFO("ambiguous field name: %s, cannot determine table for this field.", field_name);
+          return RC::INVALID_ARGUMENT;
+        }
+        found = true;
+        table = table_;
+      }
     }
 
-    table = context_.query_tables()[0];
+    if (!found) {
+      LOG_INFO("no such field in from list: %s", field_name);
+      return RC::SCHEMA_FIELD_MISSING;
+    }
+
   } else {
     table = context_.find_table(table_name);
     if (nullptr == table) {
@@ -169,7 +245,9 @@ RC ExpressionBinder::bind_unbound_field_expression(
 
     Field      field(table, field_meta);
     FieldExpr *field_expr = new FieldExpr(field);
+    field_expr->set_alias(alias);
     field_expr->set_name(field_name);
+    field_expr->set_table_alias(unbound_field_expr->table_alias());
     bound_expressions.emplace_back(field_expr);
   }
 
@@ -184,9 +262,13 @@ RC ExpressionBinder::bind_field_expression(
 }
 
 RC ExpressionBinder::bind_value_expression(
-    unique_ptr<Expression> &value_expr, vector<unique_ptr<Expression>> &bound_expressions)
+    unique_ptr<Expression> &expr, vector<unique_ptr<Expression>> &bound_expressions)
 {
-  bound_expressions.emplace_back(std::move(value_expr));
+  ValueExpr *value_expr = static_cast<ValueExpr *>(expr.get());
+  if (value_expr->value_type() == AttrType::UNDEFINED) {
+    return RC::INVALID_ARGUMENT;
+  }
+  bound_expressions.emplace_back(std::move(expr));
   return RC::SUCCESS;
 }
 
@@ -319,19 +401,24 @@ RC ExpressionBinder::bind_arithmetic_expression(
   unique_ptr<Expression>        &left_expr  = arithmetic_expr->left();
   unique_ptr<Expression>        &right_expr = arithmetic_expr->right();
 
-  RC rc = bind_expression(left_expr, child_bound_expressions);
-  if (OB_FAIL(rc)) {
-    return rc;
-  }
+  RC rc = RC::SUCCESS;
 
-  if (child_bound_expressions.size() != 1) {
-    LOG_WARN("invalid left children number of comparison expression: %d", child_bound_expressions.size());
-    return RC::INVALID_ARGUMENT;
-  }
+  // 负号表达式没有 left_expr
+  if (arithmetic_expr->arithmetic_type() != ArithmeticExpr::Type::NEGATIVE) {
+    rc = bind_expression(left_expr, child_bound_expressions);
+    if (OB_FAIL(rc)) {
+      return rc;
+    }
 
-  unique_ptr<Expression> &left = child_bound_expressions[0];
-  if (left.get() != left_expr.get()) {
-    left_expr.reset(left.release());
+    if (child_bound_expressions.size() != 1) {
+      LOG_WARN("invalid left children number of comparison expression: %d", child_bound_expressions.size());
+      return RC::INVALID_ARGUMENT;
+    }
+
+    unique_ptr<Expression> &left = child_bound_expressions[0];
+    if (left.get() != left_expr.get()) {
+      left_expr.reset(left.release());
+    }
   }
 
   child_bound_expressions.clear();
@@ -364,27 +451,27 @@ RC check_aggregate_expression(AggregateExpr &expression)
   }
 
   // 校验数据类型与聚合类型是否匹配
-  AggregateExpr::Type aggregate_type   = expression.aggregate_type();
-  AttrType            child_value_type = child_expression->value_type();
+  AggregateType aggregate_type   = expression.aggregate_type();
+  AttrType      child_value_type = child_expression->value_type();
   switch (aggregate_type) {
-    case AggregateExpr::Type::SUM:
-    case AggregateExpr::Type::AVG: {
+    case AggregateType::SUM:
+    case AggregateType::AVG: {
       // 仅支持数值类型
-      if (!is_numerical_type(child_value_type)) {
+      if (child_value_type != AttrType::INTS && child_value_type != AttrType::FLOATS) {
         LOG_WARN("invalid child value type for aggregate expression: %d", static_cast<int>(child_value_type));
         return RC::INVALID_ARGUMENT;
       }
     } break;
 
-    case AggregateExpr::Type::COUNT:
-    case AggregateExpr::Type::MAX:
-    case AggregateExpr::Type::MIN: {
+    case AggregateType::COUNT:
+    case AggregateType::MAX:
+    case AggregateType::MIN: {
       // 任何类型都支持
     } break;
   }
 
   // 子表达式中不能再包含聚合表达式
-  function<RC(unique_ptr<Expression>&)> check_aggregate_expr = [&](unique_ptr<Expression> &expr) -> RC {
+  function<RC(std::unique_ptr<Expression> &)> check_aggregate_expr = [&](unique_ptr<Expression> &expr) -> RC {
     RC rc = RC::SUCCESS;
     if (expr->type() == ExprType::AGGREGATION) {
       LOG_WARN("aggregate expression cannot be nested");
@@ -399,6 +486,7 @@ RC check_aggregate_expression(AggregateExpr &expression)
   return rc;
 }
 
+// 绑定聚合表达式
 RC ExpressionBinder::bind_aggregate_expression(
     unique_ptr<Expression> &expr, vector<unique_ptr<Expression>> &bound_expressions)
 {
@@ -406,19 +494,17 @@ RC ExpressionBinder::bind_aggregate_expression(
     return RC::SUCCESS;
   }
 
-  auto unbound_aggregate_expr = static_cast<UnboundAggregateExpr *>(expr.get());
-  const char *aggregate_name = unbound_aggregate_expr->aggregate_name();
-  AggregateExpr::Type aggregate_type;
-  RC rc = AggregateExpr::type_from_string(aggregate_name, aggregate_type);
-  if (OB_FAIL(rc)) {
-    LOG_WARN("invalid aggregate name: %s", aggregate_name);
-    return rc;
-  }
+  RC rc = RC::SUCCESS;
+
+  auto          unbound_aggregate_expr = static_cast<UnboundAggregateExpr *>(expr.get());
+  AggregateType aggregate_type         = unbound_aggregate_expr->aggregate_type();
 
   unique_ptr<Expression>        &child_expr = unbound_aggregate_expr->child();
   vector<unique_ptr<Expression>> child_bound_expressions;
 
-  if (child_expr->type() == ExprType::STAR && aggregate_type == AggregateExpr::Type::COUNT) {
+  // 下面都是对子表达式的特殊处理
+  // 如果聚合表达式的子表达式是 * 且聚合类型是 COUNT, 则将子表达式替换为常量 1
+  if (child_expr->type() == ExprType::STAR && aggregate_type == AggregateType::COUNT) {
     ValueExpr *value_expr = new ValueExpr(Value(1));
     child_expr.reset(value_expr);
   } else {
@@ -439,11 +525,166 @@ RC ExpressionBinder::bind_aggregate_expression(
 
   auto aggregate_expr = make_unique<AggregateExpr>(aggregate_type, std::move(child_expr));
   aggregate_expr->set_name(unbound_aggregate_expr->name());
+  aggregate_expr->set_alias(unbound_aggregate_expr->alias());
+  // 检查聚合表达式是否合法
   rc = check_aggregate_expression(*aggregate_expr);
   if (OB_FAIL(rc)) {
     return rc;
   }
 
   bound_expressions.emplace_back(std::move(aggregate_expr));
+  return RC::SUCCESS;
+}
+
+/// 与 bind_comparison_expression 相似,只需绑定两个子表达式即可
+RC ExpressionBinder::bind_like_expression(
+    std::unique_ptr<Expression> &expr, std::vector<std::unique_ptr<Expression>> &bound_expressions)
+{
+  if (nullptr == expr) {
+    return RC::SUCCESS;
+  }
+
+  auto like_expr = static_cast<LikeExpr *>(expr.get());
+
+  vector<unique_ptr<Expression>> child_bound_expressions;
+  unique_ptr<Expression>        &sExpr = like_expr->sExpr();
+  unique_ptr<Expression>        &pExpr = like_expr->pExpr();
+
+  RC rc = bind_expression(sExpr, child_bound_expressions);
+  if (OB_FAIL(rc)) {
+    return rc;
+  }
+
+  if (child_bound_expressions.size() != 1) {
+    LOG_WARN("invalid left children number of comparison expression: %d", child_bound_expressions.size());
+    return RC::INVALID_ARGUMENT;
+  }
+
+  unique_ptr<Expression> &sBoundedExpr = child_bound_expressions[0];
+  if (sBoundedExpr.get() != sExpr.get()) {
+    sExpr.reset(sBoundedExpr.release());
+  }
+
+  child_bound_expressions.clear();
+  rc = bind_expression(pExpr, child_bound_expressions);
+  if (OB_FAIL(rc)) {
+    return rc;
+  }
+
+  if (child_bound_expressions.size() != 1) {
+    LOG_WARN("invalid right children number of comparison expression: %d", child_bound_expressions.size());
+    return RC::INVALID_ARGUMENT;
+  }
+
+  unique_ptr<Expression> &pBoundedExpr = child_bound_expressions[0];
+  if (pBoundedExpr.get() != pExpr.get()) {
+    pExpr.reset(pBoundedExpr.release());
+  }
+
+  bound_expressions.emplace_back(std::move(expr));
+  return RC::SUCCESS;
+}
+
+RC ExpressionBinder::bind_vector_distance_expression(
+    std::unique_ptr<Expression> &expr, std::vector<std::unique_ptr<Expression>> &bound_expressions)
+{
+  if (nullptr == expr) {
+    return RC::SUCCESS;
+  }
+
+  auto vde = static_cast<VectorDistanceExpr *>(expr.get());
+
+  vector<unique_ptr<Expression>> child_bound_expressions;
+  unique_ptr<Expression>        &left  = vde->left();
+  unique_ptr<Expression>        &right = vde->right();
+
+  RC rc = bind_expression(left, child_bound_expressions);
+  if (OB_FAIL(rc)) {
+    return rc;
+  }
+
+  if (child_bound_expressions.size() != 1) {
+    LOG_WARN("invalid left children number of comparison expression: %d", child_bound_expressions.size());
+    return RC::INVALID_ARGUMENT;
+  }
+
+  unique_ptr<Expression> &leftBoundedExpr = child_bound_expressions[0];
+  if (leftBoundedExpr.get() != left.get()) {
+    left.reset(leftBoundedExpr.release());
+  }
+
+  child_bound_expressions.clear();
+  rc = bind_expression(right, child_bound_expressions);
+  if (OB_FAIL(rc)) {
+    return rc;
+  }
+
+  if (child_bound_expressions.size() != 1) {
+    LOG_WARN("invalid right children number of comparison expression: %d", child_bound_expressions.size());
+    return RC::INVALID_ARGUMENT;
+  }
+
+  unique_ptr<Expression> &rightBoundedExpr = child_bound_expressions[0];
+  if (rightBoundedExpr.get() != right.get()) {
+    right.reset(rightBoundedExpr.release());
+  }
+
+  bound_expressions.emplace_back(std::move(expr));
+  return RC::SUCCESS;
+}
+
+RC ExpressionBinder::bind_is_expression(
+    std::unique_ptr<Expression> &expr, std::vector<std::unique_ptr<Expression>> &bound_expressions)
+{
+  if (nullptr == expr) {
+    return RC::SUCCESS;
+  }
+
+  auto is_expr = static_cast<IsExpr *>(expr.get());
+
+  vector<unique_ptr<Expression>> child_bound_expressions;
+  unique_ptr<Expression>        &left  = is_expr->left();
+  unique_ptr<Expression>        &right = is_expr->right();
+
+  // is 右边必须是常量
+  if (right->type() != ExprType::VALUE) {
+    LOG_WARN("right expression of IS must be a constant");
+    return RC::INVALID_ARGUMENT;
+  }
+
+  RC rc = RC::SUCCESS;
+
+  rc = bind_expression(left, child_bound_expressions);
+  if (OB_FAIL(rc)) {
+    return rc;
+  }
+
+  if (child_bound_expressions.size() != 1) {
+    LOG_WARN("invalid left children number of comparison expression: %d", child_bound_expressions.size());
+    return RC::INVALID_ARGUMENT;
+  }
+
+  unique_ptr<Expression> &leftBoundedExpr = child_bound_expressions[0];
+  if (leftBoundedExpr.get() != left.get()) {
+    left.reset(leftBoundedExpr.release());
+  }
+
+  child_bound_expressions.clear();
+  rc = bind_expression(right, child_bound_expressions);
+  if (OB_FAIL(rc)) {
+    return rc;
+  }
+
+  if (child_bound_expressions.size() != 1) {
+    LOG_WARN("invalid right children number of comparison expression: %d", child_bound_expressions.size());
+    return RC::INVALID_ARGUMENT;
+  }
+
+  unique_ptr<Expression> &rightBoundedExpr = child_bound_expressions[0];
+  if (rightBoundedExpr.get() != right.get()) {
+    right.reset(rightBoundedExpr.release());
+  }
+
+  bound_expressions.emplace_back(std::move(expr));
   return RC::SUCCESS;
 }

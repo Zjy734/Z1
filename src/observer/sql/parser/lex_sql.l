@@ -27,7 +27,6 @@ while (0);
 %{
 #include<string.h>
 #include<stdio.h>
-#include <vector>
 
 /**
  * flex 代码包含三个部分，使用 %% 分隔
@@ -60,8 +59,10 @@ extern double atof();
 %option case-insensitive
 %option bison-locations
 
-WHITE_SPACE      [\ \t\b\f]
+/* 左侧是宏定义，右侧是正则表达式，用于下面规则的匹配 */
+WHITE_SAPCE      [\ \t\b\f]
 DIGIT            [0-9]+
+FLOAT            [0-9]*\.[0-9]+
 
 ID               [A-Za-z_]+[A-Za-z0-9_]*
 DOT              \.
@@ -71,15 +72,25 @@ QUOTE            [\'\"]
 /* 规则匹配的优先级：*/
 /* 1. 匹配的规则长的优先 */
 /* 2. 写在最前面的优先 */
+/* 左边是上面定义的宏或者是正则表达式，右边是返回的token */
 
 /* yylval 就可以认为是 yacc 中 %union 定义的结构体(union 结构) */
 %%
 
-{WHITE_SPACE}                                        // ignore whitespace
+{WHITE_SAPCE}                                        // ignore whitespace
 \n                                                   ;
 
-{DIGIT}+                           yylval->number=atoi(yytext); RETURN_TOKEN(NUMBER);
+{DIGIT}+                           yylval->number=atoi(yytext); RETURN_TOKEN(NUMBER);  // number 不要考虑负数，而是通过 yacc 识别 expression 前的负号来处理
 {DIGIT}+{DOT}{DIGIT}+              yylval->floats=(float)(atof(yytext)); RETURN_TOKEN(FLOAT);
+\"\[{WHITE_SAPCE}*[\-]?{DIGIT}+(\.{DIGIT}+)?({WHITE_SAPCE}*,{WHITE_SAPCE}*[\-]?{DIGIT}+(\.{DIGIT}+)?)*{WHITE_SAPCE}*\]\" yylval->string=strdup(yytext); RETURN_TOKEN(VECTOR);
+\'\[{WHITE_SAPCE}*[\-]?{DIGIT}+(\.{DIGIT}+)?({WHITE_SAPCE}*,{WHITE_SAPCE}*[\-]?{DIGIT}+(\.{DIGIT}+)?)*{WHITE_SAPCE}*\]\' yylval->string=strdup(yytext); RETURN_TOKEN(VECTOR);
+\[{WHITE_SAPCE}*[\-]?{DIGIT}+(\.{DIGIT}+)?({WHITE_SAPCE}*,{WHITE_SAPCE}*[\-]?{DIGIT}+(\.{DIGIT}+)?)*{WHITE_SAPCE}*\] yylval->string=strdup(yytext); RETURN_TOKEN(VECTOR);
+\"\[{WHITE_SAPCE}*\]\" yylval->string=strdup(yytext); RETURN_TOKEN(VECTOR);
+\'\[{WHITE_SAPCE}*\]\' yylval->string=strdup(yytext); RETURN_TOKEN(VECTOR);
+\[{WHITE_SAPCE}*\] yylval->string=strdup(yytext);RETURN_TOKEN(VECTOR);
+\"[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\"          yylval->string=strdup(yytext); RETURN_TOKEN(DATE);
+\'[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\'          yylval->string=strdup(yytext); RETURN_TOKEN(DATE);
+
 
 ";"                                     RETURN_TOKEN(SEMICOLON);
 {DOT}                                   RETURN_TOKEN(DOT);
@@ -90,15 +101,25 @@ CREATE                                  RETURN_TOKEN(CREATE);
 DROP                                    RETURN_TOKEN(DROP);
 TABLE                                   RETURN_TOKEN(TABLE);
 TABLES                                  RETURN_TOKEN(TABLES);
+VIEW                                    RETURN_TOKEN(VIEW);
+IN                                      RETURN_TOKEN(IN);
+"NOT IN"                                RETURN_TOKEN(NOT_IN);
+EXISTS                                  RETURN_TOKEN(EXISTS);
+"NOT EXISTS"                            RETURN_TOKEN(NOT_EXISTS);
 INDEX                                   RETURN_TOKEN(INDEX);
+UNIQUE                                  RETURN_TOKEN(UNIQUE);
 ON                                      RETURN_TOKEN(ON);
 SHOW                                    RETURN_TOKEN(SHOW);
 SYNC                                    RETURN_TOKEN(SYNC);
 SELECT                                  RETURN_TOKEN(SELECT);
+AS                                      RETURN_TOKEN(AS);
+"INNER JOIN"                            RETURN_TOKEN(INNER_JOIN);
 CALC                                    RETURN_TOKEN(CALC);
 FROM                                    RETURN_TOKEN(FROM);
 WHERE                                   RETURN_TOKEN(WHERE);
+HAVING                                  RETURN_TOKEN(HAVING);
 AND                                     RETURN_TOKEN(AND);
+OR                                      RETURN_TOKEN(OR);
 INSERT                                  RETURN_TOKEN(INSERT);
 INTO                                    RETURN_TOKEN(INTO);
 VALUES                                  RETURN_TOKEN(VALUES);
@@ -111,22 +132,36 @@ ROLLBACK                                RETURN_TOKEN(TRX_ROLLBACK);
 INT                                     RETURN_TOKEN(INT_T);
 CHAR                                    RETURN_TOKEN(STRING_T);
 FLOAT                                   RETURN_TOKEN(FLOAT_T);
+DATE                                    RETURN_TOKEN(DATE_T);
 VECTOR                                  RETURN_TOKEN(VECTOR_T);
 LOAD                                    RETURN_TOKEN(LOAD);
-DATA                                    RETURN_TOKEN(DATA);
 INFILE                                  RETURN_TOKEN(INFILE);
 EXPLAIN                                 RETURN_TOKEN(EXPLAIN);
 GROUP                                   RETURN_TOKEN(GROUP);
 BY                                      RETURN_TOKEN(BY);
 STORAGE                                 RETURN_TOKEN(STORAGE);
 FORMAT                                  RETURN_TOKEN(FORMAT);
-PRIMARY                                 RETURN_TOKEN(PRIMARY);
-KEY                                     RETURN_TOKEN(KEY);
-ANALYZE                                 RETURN_TOKEN(ANALYZE);
-FIELDS                                  RETURN_TOKEN(FIELDS);
-TERMINATED                              RETURN_TOKEN(TERMINATED);
-ENCLOSED                                RETURN_TOKEN(ENCLOSED);
-{ID}                                    yylval->cstring=strdup(yytext); static_cast<std::vector<char*>*>(yyextra)->push_back(yylval->cstring); RETURN_TOKEN(ID);
+ORDER                                   RETURN_TOKEN(ORDER);
+ASC                                     RETURN_TOKEN(ASC);
+DESC                                    RETURN_TOKEN(DESC);
+NOT                                     RETURN_TOKEN(NOT);
+NULL                                    RETURN_TOKEN(NULL_T);
+LIKE                                    RETURN_TOKEN(LIKE);
+L2_DISTANCE                             RETURN_TOKEN(L2_DISTANCE);
+COSINE_DISTANCE                         RETURN_TOKEN(COSINE_DISTANCE);
+INNER_PRODUCT                           RETURN_TOKEN(INNER_PRODUCT);
+IS                                      RETURN_TOKEN(IS);
+LIMIT                                   RETURN_TOKEN(LIMIT);
+WITH                                    RETURN_TOKEN(WITH);
+
+COUNT                                   RETURN_TOKEN(COUNT);
+MAX                                     RETURN_TOKEN(MAX);
+MIN                                     RETURN_TOKEN(MIN);
+AVG                                     RETURN_TOKEN(AVG);
+SUM                                     RETURN_TOKEN(SUM);
+
+TEXT                                    RETURN_TOKEN(TEXT_T);
+{ID}                                    yylval->string=strdup(yytext); RETURN_TOKEN(ID);
 "("                                     RETURN_TOKEN(LBRACE);
 ")"                                     RETURN_TOKEN(RBRACE);
 
@@ -143,8 +178,8 @@ ENCLOSED                                RETURN_TOKEN(ENCLOSED);
 "-" |
 "*" |
 "/"                                     { return yytext[0]; }
-\"[^"]*\"                               yylval->cstring = strdup(yytext); static_cast<std::vector<char*>*>(yyextra)->push_back(yylval->cstring); RETURN_TOKEN(SSS);
-'[^']*\'                                yylval->cstring = strdup(yytext); static_cast<std::vector<char*>*>(yyextra)->push_back(yylval->cstring); RETURN_TOKEN(SSS);
+\"[^"]*\"                               yylval->string = strdup(yytext); RETURN_TOKEN(SSS);
+'[^']*\'                                yylval->string = strdup(yytext); RETURN_TOKEN(SSS);
 
 .                                       LOG_DEBUG("Unknown character [%c]",yytext[0]); return yytext[0];
 %%
