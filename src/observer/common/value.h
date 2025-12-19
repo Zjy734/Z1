@@ -56,6 +56,17 @@ public:
     return v;
   }
 
+  static Value from_date(const char* date_str) {
+  int date_value = 0;
+  if (date_str != nullptr) {
+    int year, month, day;
+    if (sscanf(date_str, "%d-%d-%d", &year, &month, &day) == 3) {
+      date_value = year * 10000 + month * 100 + day;
+    }
+  }
+  return from_date(date_value);
+}
+
   Value(const Value &other);
   Value(Value &&other);
 
