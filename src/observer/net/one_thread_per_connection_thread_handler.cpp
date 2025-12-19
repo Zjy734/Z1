@@ -95,7 +95,9 @@ public:
 
       RC rc = task_handler_.handle_event(communicator_);
       if (OB_FAIL(rc)) {
-        LOG_ERROR("handle error. rc = %s", strrc(rc));
+        if (rc != RC::SCHEMA_FIELD_TYPE_MISMATCH) { // Don't log error for expected failure
+          LOG_ERROR("handle error. rc = %s", strrc(rc));
+        }
         break;
       }
     }

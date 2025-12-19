@@ -1,23 +1,27 @@
+/* Copyright (c) OceanBase and/or its affiliates. All rights reserved.
+miniob is licensed under Mulan PSL v2.
+*/
+
 #pragma once
 
-#include "update_logical_opeator.h"
 #include "sql/operator/logical_operator.h"
 
 class UpdateLogicalOperator : public LogicalOperator
 {
 public:
-  UpdateLogicalOperator(Table *table, std::vector<FieldMeta> field_metas, std::vector<std::unique_ptr<Expression>> expr)
-      : table_(table), field_metas_(std::move(field_metas)), exprs_(std::move(expr))
-  {}
+  UpdateLogicalOperator(Table *table, string field_name, Value value)
+      : table_(table), field_name_(std::move(field_name)), value_(value) {}
   virtual ~UpdateLogicalOperator() = default;
 
-  LogicalOperatorType                       type() const override { return LogicalOperatorType::UPDATE; }
-  Table                                    *table() const { return table_; }
-  std::vector<FieldMeta>                    field_metas() const { return field_metas_; }
-  std::vector<std::unique_ptr<Expression>> &exprs() { return exprs_; }
+  LogicalOperatorType type() const override { return LogicalOperatorType::UPDATE; }
+  OpType              get_op_type() const override { return OpType::LOGICALUPDATE; }
+
+  Table *table() const { return table_; }
+  const string &field_name() const { return field_name_; }
+  const Value  &value() const { return value_; }
 
 private:
-  Table                                   *table_;
-  std::vector<FieldMeta>                   field_metas_;
-  std::vector<std::unique_ptr<Expression>> exprs_;
+  Table  *table_ = nullptr;
+  string  field_name_;
+  Value   value_;
 };

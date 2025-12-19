@@ -1,10 +1,11 @@
+// Drop table executor
 #pragma once
-#include "common/rc.h"
+
+#include "common/sys/rc.h"
 
 class SQLStageEvent;
 
-
 class DropTableExecutor {
 public:
-    RC execute(SQLStageEvent* sql_event);
+  RC execute(SQLStageEvent *sql_event);
 };

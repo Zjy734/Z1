@@ -18,6 +18,7 @@ See the Mulan PSL v2 for more details. */
 #pragma once
 
 #include <string.h>
+#include <vector>
 
 #include "common/lang/comparator.h"
 #include "common/lang/memory.h"
@@ -58,27 +59,41 @@ class AttrComparator
 public:
   void init(AttrType type, int length)
   {
-    attr_type_   = type;
-    attr_length_ = length;
+    column_types_.clear(); column_lengths_.clear();
+    column_types_.push_back(type);
+    column_lengths_.push_back(length);
+    total_length_ = length;
   }
 
-  int attr_length() const { return attr_length_; }
+  void init(const std::vector<AttrType> &types, const std::vector<int> &lengths)
+  {
+    column_types_   = types;
+    column_lengths_ = lengths;
+    total_length_   = 0;
+    for (int len : column_lengths_) total_length_ += len;
+  }
+
+  int attr_length() const { return total_length_; }
 
   int operator()(const char *v1, const char *v2) const
   {
-    // TODO: optimized the comparison
-    Value left;
-    left.set_type(attr_type_);
-    left.set_data(v1, attr_length_);
-    Value right;
-    right.set_type(attr_type_);
-    right.set_data(v2, attr_length_);
-    return DataType::type_instance(attr_type_)->compare(left, right);
+    int offset = 0;
+    for (size_t i = 0; i < column_types_.size(); i++) {
+      AttrType type = column_types_[i];
+      int      len  = column_lengths_[i];
+      Value left; left.set_type(type); left.set_data(v1 + offset, len);
+      Value right; right.set_type(type); right.set_data(v2 + offset, len);
+      int cmp = DataType::type_instance(type)->compare(left, right);
+      if (cmp != 0) return cmp;
+      offset += len;
+    }
+    return 0;
   }
 
 private:
-  AttrType attr_type_;
-  int      attr_length_;
+  std::vector<AttrType> column_types_{};
+  std::vector<int>      column_lengths_{};
+  int                   total_length_ = 0;
 };
 
 /**
@@ -90,6 +105,7 @@ class KeyComparator
 {
 public:
   void init(AttrType type, int length) { attr_comparator_.init(type, length); }
+  void init(const std::vector<AttrType> &types, const std::vector<int> &lengths) { attr_comparator_.init(types, lengths); }
 
   const AttrComparator &attr_comparator() const { return attr_comparator_; }
 
@@ -118,21 +134,41 @@ class AttrPrinter
 public:
   void init(AttrType type, int length)
   {
-    attr_type_   = type;
-    attr_length_ = length;
+    column_types_.clear(); column_lengths_.clear();
+    column_types_.push_back(type);
+    column_lengths_.push_back(length);
+    total_length_ = length;
   }
 
-  int attr_length() const { return attr_length_; }
+  void init(const std::vector<AttrType> &types, const std::vector<int> &lengths)
+  {
+    column_types_   = types;
+    column_lengths_ = lengths;
+    total_length_   = 0;
+    for (int len : column_lengths_) total_length_ += len;
+  }
+
+  int attr_length() const { return total_length_; }
 
   string operator()(const char *v) const
   {
-    Value value(attr_type_, const_cast<char *>(v), attr_length_);
-    return value.to_string();
+    stringstream ss;
+    ss << "[";
+    int offset = 0;
+    for (size_t i = 0; i < column_types_.size(); i++) {
+      if (i) ss << ",";
+      Value value(column_types_[i], const_cast<char *>(v + offset), column_lengths_[i]);
+      ss << value.to_string();
+      offset += column_lengths_[i];
+    }
+    ss << "]";
+    return ss.str();
   }
 
 private:
-  AttrType attr_type_;
-  int      attr_length_;
+  std::vector<AttrType> column_types_{};
+  std::vector<int>      column_lengths_{};
+  int                   total_length_ = 0;
 };
 
 /**
@@ -143,6 +179,7 @@ class KeyPrinter
 {
 public:
   void init(AttrType type, int length) { attr_printer_.init(type, length); }
+  void init(const std::vector<AttrType> &types, const std::vector<int> &lengths) { attr_printer_.init(types, lengths); }
 
   const AttrPrinter &attr_printer() const { return attr_printer_; }
 
@@ -178,15 +215,20 @@ struct IndexFileHeader
   int32_t  leaf_max_size;      ///< 叶子节点最大的键值对数
   int32_t  attr_length;        ///< 键值的长度
   int32_t  key_length;         ///< attr length + sizeof(RID)
-  AttrType attr_type;          ///< 键值的类型
+  AttrType attr_type;          ///< 兼容：首列类型
+  int32_t  attr_count;         ///< 复合列数量（>=1）
+  static constexpr int MAX_INDEX_COLUMNS = 8;
+  AttrType column_types[MAX_INDEX_COLUMNS];
+  int32_t  column_lengths[MAX_INDEX_COLUMNS];
 
   const string to_string() const
   {
     stringstream ss;
 
-    ss << "attr_length:" << attr_length << ","
+  ss << "attr_length:" << attr_length << ","
        << "key_length:" << key_length << ","
-       << "attr_type:" << attr_type_to_string(attr_type) << ","
+     << "attr_type:" << attr_type_to_string(attr_type) << ","
+     << "attr_count:" << attr_count << ","
        << "root_page:" << root_page << ","
        << "internal_max_size:" << internal_max_size << ","
        << "leaf_max_size:" << leaf_max_size << ";";
@@ -463,6 +505,13 @@ public:
       int internal_max_size = -1, int leaf_max_size = -1);
   RC create(LogHandler &log_handler, DiskBufferPool &buffer_pool, AttrType attr_type, int attr_length,
       int internal_max_size = -1, int leaf_max_size = -1);
+  // 多列索引重载
+  RC create(LogHandler &log_handler, BufferPoolManager &bpm, const char *file_name,
+            const std::vector<AttrType> &types, const std::vector<int> &lengths,
+            int internal_max_size = -1, int leaf_max_size = -1);
+  RC create(LogHandler &log_handler, DiskBufferPool &buffer_pool,
+            const std::vector<AttrType> &types, const std::vector<int> &lengths,
+            int internal_max_size = -1, int leaf_max_size = -1);
 
   /**
    * @brief 打开一个B+树

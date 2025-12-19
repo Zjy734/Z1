@@ -32,7 +32,12 @@ RC CreateTableExecutor::execute(SQLStageEvent *sql_event)
   CreateTableStmt *create_table_stmt = static_cast<CreateTableStmt *>(stmt);
 
   const char *table_name = create_table_stmt->table_name().c_str();
-  RC rc = session->get_current_db()->create_table(table_name, create_table_stmt->attr_infos(), create_table_stmt->primary_keys(), create_table_stmt->storage_format());
+  Db *db = session->get_current_db();
+  // IF NOT EXISTS: 表已存在则直接成功
+  if (create_table_stmt->if_not_exists() && db->find_table(table_name) != nullptr) {
+    return RC::SUCCESS;
+  }
+  RC rc = db->create_table(table_name, create_table_stmt->attr_infos(), create_table_stmt->primary_keys(), create_table_stmt->storage_format());
 
   return rc;
 }

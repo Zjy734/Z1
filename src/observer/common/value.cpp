@@ -19,6 +19,9 @@ See the Mulan PSL v2 for more details. */
 #include "common/lang/sstream.h"
 #include "common/lang/string.h"
 #include "common/log/log.h"
+#include "common/type/date_type.h" // for DateType::parse
+#include <cstdlib>
+#include <cmath>
 
 Value::Value(int val) { set_int(val); }
 
@@ -120,6 +123,10 @@ void Value::set_data(char *data, int length)
       value_.int_value_ = *(int *)data;
       length_           = length;
     } break;
+    case AttrType::DATES: {
+      value_.int_value_ = *(int *)data;
+      length_           = length;
+    } break;
     case AttrType::FLOATS: {
       value_.float_value_ = *(float *)data;
       length_             = length;
@@ -197,6 +204,12 @@ void Value::set_value(const Value &value)
     case AttrType::INTS: {
       set_int(value.get_int());
     } break;
+    case AttrType::DATES: {
+      reset();
+      attr_type_ = AttrType::DATES;
+      value_.int_value_ = value.value_.int_value_;
+      length_ = sizeof(int);
+    } break;
     case AttrType::FLOATS: {
       set_float(value.get_float());
     } break;
@@ -245,7 +258,96 @@ string Value::to_string() const
   return res;
 }
 
-int Value::compare(const Value &other) const { return DataType::type_instance(this->attr_type_)->compare(*this, other); }
+int Value::compare(const Value &other) const {
+  AttrType lt = this->attr_type_;
+  AttrType rt = other.attr_type_;
+
+  // NULL-like 语义：用 NaN 表示的结果参与比较时，应视作 NULL。
+  // 在 SQL 中：任何与 NULL 的比较结果为 UNKNOWN，WHERE 中过滤为 false。
+  // 这里通过让 compare 返回一个“非 0”且稳定的结果，使得 '=' 不会命中。
+  if ((lt == AttrType::FLOATS && std::isnan(this->get_float())) ||
+      (rt == AttrType::FLOATS && std::isnan(other.get_float()))) {
+    return 1;
+  }
+
+  // 同类型直接走原始实现
+  if (lt == rt) {
+    return DataType::type_instance(lt)->compare(*this, other);
+  }
+  auto is_num = [](AttrType t){ return t == AttrType::INTS || t == AttrType::FLOATS; };
+  // 数值混合：统一提升为 FLOAT
+  if (is_num(lt) && is_num(rt)) {
+    float l = this->get_float();
+    float r = other.get_float();
+    if (l < r) return -1;
+    if (l > r) return 1;
+    return 0;
+  }
+  // 宽松解析函数：从字符串前缀解析数值，"16a" -> 16，解析失败则返回 0
+  auto numeric_from_chars = [](const Value &v) -> double {
+    if (v.attr_type() != AttrType::CHARS || v.data() == nullptr || v.length() <= 0) return 0.0;
+    std::string s(v.data(), v.length());
+    const char *beg = s.c_str();
+    char *end = nullptr;
+    double d = std::strtod(beg, &end);
+    if (end == beg) { // 无法解析任何数字，退化为 0
+      return 0.0;
+    }
+    return d;
+  };
+
+  // 字符 vs 数值：使用宽松前缀解析，匹配题目预期 '16a' > 13.5
+  if (lt == AttrType::CHARS && is_num(rt)) {
+    double l = numeric_from_chars(*this);
+    double r = static_cast<double>(other.get_float());
+    if (l < r) return -1;
+    if (l > r) return 1;
+    return 0;
+  }
+  if (rt == AttrType::CHARS && is_num(lt)) {
+    double l = static_cast<double>(this->get_float());
+    double r = numeric_from_chars(other);
+    if (l < r) return -1;
+    if (l > r) return 1;
+    return 0;
+  }
+  // 日期 vs 字符串：尝试将字符串解析为合法日期。成功则比较日期大小。失败则返回不相等(约定: 字符无法转日期时与日期比较为不相等)。
+  auto parse_date_from_chars = [](const Value &v, int &days) -> bool {
+    if (v.attr_type() != AttrType::CHARS || v.data() == nullptr || v.length() <= 0) {
+      return false;
+    }
+    std::string s(v.data(), v.length());
+    int d = 0;
+    if (DateType::parse(s, d) == RC::SUCCESS) {
+      days = d;
+      return true;
+    }
+    return false;
+  };
+  if (lt == AttrType::DATES && rt == AttrType::CHARS) {
+    int rdays = 0;
+    if (parse_date_from_chars(other, rdays)) {
+      int ldays = this->get_int();
+      if (ldays < rdays) return -1;
+      if (ldays > rdays) return 1;
+      return 0;
+    }
+    // 无法解析，认为不相等(与日期不匹配) —— 返回非0
+    return 1;
+  }
+  if (lt == AttrType::CHARS && rt == AttrType::DATES) {
+    int ldays = 0;
+    if (parse_date_from_chars(*this, ldays)) {
+      int rdays = other.get_int();
+      if (ldays < rdays) return -1;
+      if (ldays > rdays) return 1;
+      return 0;
+    }
+    return -1; // 不可解析，给一个非0结果
+  }
+  // 其他类型暂保持原逻辑（可能会 ASSERT，根据设计未来扩展）
+  return DataType::type_instance(lt)->compare(*this, other);
+}
 
 int Value::get_int() const
 {
@@ -259,6 +361,9 @@ int Value::get_int() const
       }
     }
     case AttrType::INTS: {
+      return value_.int_value_;
+    }
+    case AttrType::DATES: {
       return value_.int_value_;
     }
     case AttrType::FLOATS: {

@@ -23,6 +23,7 @@ See the Mulan PSL v2 for more details. */
 #include "storage/record/record_manager.h"
 
 class IndexScanner;
+class Table;
 
 /**
  * @brief 索引
@@ -40,11 +41,11 @@ public:
   Index()          = default;
   virtual ~Index() = default;
 
-  virtual RC create(Table *table, const char *file_name, const IndexMeta &index_meta, const FieldMeta &field_meta)
+  virtual RC create(Table *table, const char *file_name, const IndexMeta &index_meta, const vector<const FieldMeta *> &field_metas)
   {
     return RC::UNSUPPORTED;
   }
-  virtual RC open(Table *table, const char *file_name, const IndexMeta &index_meta, const FieldMeta &field_meta)
+  virtual RC open(Table *table, const char *file_name, const IndexMeta &index_meta, const vector<const FieldMeta *> &field_metas)
   {
     return RC::UNSUPPORTED;
   }
@@ -52,6 +53,9 @@ public:
   virtual bool is_vector_index() { return false; }
 
   const IndexMeta &index_meta() const { return index_meta_; }
+  // 暴露字段数量，用于物理执行器决定是否使用索引扫描（当前仅支持单字段等值）
+  size_t field_count() const { return field_metas_.size(); }
+  // 如后续需要访问具体字段，可再提供 const 引用访问接口
 
   /**
    * @brief 插入一条数据
@@ -89,11 +93,11 @@ public:
   virtual RC sync() = 0;
 
 protected:
-  RC init(const IndexMeta &index_meta, const FieldMeta &field_meta);
+  RC init(const IndexMeta &index_meta, const vector<const FieldMeta *> &field_metas);
 
 protected:
   IndexMeta index_meta_;  ///< 索引的元数据
-  FieldMeta field_meta_;  ///< 当前实现仅考虑一个字段的索引
+  vector<const FieldMeta *> field_metas_;  ///< 支持多字段索引，按顺序
 };
 
 /**

@@ -11,6 +11,9 @@ See the Mulan PSL v2 for more details. */
 #pragma once
 
 #include "sql/stmt/stmt.h"
+struct AnalyzeTableSqlNode;
+
+
 
 class Db;
 

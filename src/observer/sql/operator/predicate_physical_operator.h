@@ -29,6 +29,7 @@ public:
   PredicatePhysicalOperator(unique_ptr<Expression> expr);
 
   virtual ~PredicatePhysicalOperator() = default;
+  
 
   PhysicalOperatorType type() const override { return PhysicalOperatorType::PREDICATE; }
   OpType               get_op_type() const override { return OpType::FILTER; }
@@ -41,6 +42,17 @@ public:
 
   RC tuple_schema(TupleSchema &schema) const override;
 
+  // ===== 添加这个方法 =====
+  void set_outer_tuple(Tuple *outer_tuple) {
+    outer_tuple_ = outer_tuple;
+  }
+  // =======================
+
 private:
   unique_ptr<Expression> expression_;
+  
+  // ===== 添加这些成员变量 =====
+  Trx *trx_ = nullptr;
+  Tuple *outer_tuple_ = nullptr;
+  // ==========================
 };

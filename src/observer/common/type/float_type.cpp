@@ -52,12 +52,14 @@ RC FloatType::multiply(const Value &left, const Value &right, Value &result) con
 
 RC FloatType::divide(const Value &left, const Value &right, Value &result) const
 {
-  if (right.get_float() > -EPSILON && right.get_float() < EPSILON) {
-    // NOTE:
-    // 设置为浮点数最大值是不正确的。通常的做法是设置为NULL，但是当前的miniob没有NULL概念，所以这里设置为浮点数最大值。
-    result.set_float(numeric_limits<float>::max());
+  float rv = right.get_float();
+  if (rv > -EPSILON && rv < EPSILON) {
+    // 以 NaN 模拟 NULL 结果：
+    // - 在布尔判断中，NaN 将被视作 false（见 Value::get_boolean），与 MySQL 的 NULL 类似
+    // - 在投影中会显示为 "nan"，可接受作为占位
+    result.set_float(std::numeric_limits<float>::quiet_NaN());
   } else {
-    result.set_float(left.get_float() / right.get_float());
+    result.set_float(left.get_float() / rv);
   }
   return RC::SUCCESS;
 }

@@ -463,6 +463,7 @@ private:
 class AggregateExpr : public Expression
 {
 public:
+  using Type = AggregateType;
   AggregateExpr(AggregateType type, Expression *child);
   AggregateExpr(AggregateType type, std::unique_ptr<Expression> child);
   virtual ~AggregateExpr() = default;

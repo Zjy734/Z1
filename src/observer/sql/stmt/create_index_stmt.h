@@ -14,8 +14,6 @@ See the Mulan PSL v2 for more details. */
 
 #pragma once
 
-#include <string>
-
 #include "sql/stmt/stmt.h"
 
 struct CreateIndexSqlNode;
@@ -29,26 +27,23 @@ class FieldMeta;
 class CreateIndexStmt : public Stmt
 {
 public:
-  CreateIndexStmt(
-      Table *table, const std::vector<const FieldMeta *> &field_metas, const std::string index_name, bool is_unique)
-      : table_(table), field_metas_(field_metas), index_name_(index_name), is_unique_(is_unique)
+  CreateIndexStmt(Table *table, vector<const FieldMeta *> field_metas, const string &index_name)
+      : table_(table), field_metas_(std::move(field_metas)), index_name_(index_name)
   {}
 
   virtual ~CreateIndexStmt() = default;
 
   StmtType type() const override { return StmtType::CREATE_INDEX; }
 
-  Table             *table() const { return table_; }
-  const std::vector<const FieldMeta *> &field_metas() const { return field_metas_; }
-  const std::string &index_name() const { return index_name_; }
-  bool                                  is_unique() const { return is_unique_; }
+  Table                         *table() const { return table_; }
+  const vector<const FieldMeta *> &field_metas() const { return field_metas_; }
+  const string                  &index_name() const { return index_name_; }
 
 public:
   static RC create(Db *db, const CreateIndexSqlNode &create_index, Stmt *&stmt);
 
 private:
-  Table           *table_      = nullptr;
-  std::vector<const FieldMeta *> field_metas_;
-  std::string      index_name_;
-  bool                           is_unique_ = false;
+  Table                         *table_      = nullptr;
+  vector<const FieldMeta *>      field_metas_{};
+  string                         index_name_;
 };

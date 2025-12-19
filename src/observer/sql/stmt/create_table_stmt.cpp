@@ -16,6 +16,8 @@ See the Mulan PSL v2 for more details. */
 #include "common/types.h"
 #include "sql/stmt/create_table_stmt.h"
 #include "event/sql_debug.h"
+#include "storage/table/table.h"
+#include "storage/db/db.h"
 
 RC CreateTableStmt::create(Db *db, const CreateTableSqlNode &create_table, Stmt *&stmt)
 {
@@ -23,7 +25,12 @@ RC CreateTableStmt::create(Db *db, const CreateTableSqlNode &create_table, Stmt 
   if (storage_format == StorageFormat::UNKNOWN_FORMAT) {
     return RC::INVALID_ARGUMENT;
   }
-  stmt = new CreateTableStmt(create_table.relation_name, create_table.attr_infos, create_table.primary_keys, storage_format);
+  // 将 if_not_exists 传递到 Stmt，由执行器决定如何处理
+  stmt = new CreateTableStmt(create_table.relation_name,
+      create_table.attr_infos,
+      create_table.primary_keys,
+      storage_format,
+      create_table.if_not_exists);
   sql_debug("create table statement: table name %s", create_table.relation_name.c_str());
   return RC::SUCCESS;
 }

@@ -25,7 +25,11 @@ RC ExpressionIterator::iterate_child_expr(Expression &expr, function<RC(unique_p
   switch (expr.type()) {
     case ExprType::CAST: {
       auto &cast_expr = static_cast<CastExpr &>(expr);
-      rc = callback(cast_expr.child());
+      // child 可能为空（例如解析/绑定失败或某些一元表达式构造时），
+      // 这里必须保护，避免 callback 内部对空 unique_ptr 解引用触发崩溃。
+      if (cast_expr.child() != nullptr) {
+        rc = callback(cast_expr.child());
+      }
     } break;
 
     case ExprType::COMPARISON: {
@@ -52,42 +56,23 @@ RC ExpressionIterator::iterate_child_expr(Expression &expr, function<RC(unique_p
     case ExprType::ARITHMETIC: {
 
       auto &arithmetic_expr = static_cast<ArithmeticExpr &>(expr);
-      if (arithmetic_expr.arithmetic_type() != ArithmeticExpr::Type::NEGATIVE) {
+      if (arithmetic_expr.left() != nullptr) {
         rc = callback(arithmetic_expr.left());
       }
       if (OB_SUCC(rc)) {
-        rc = callback(arithmetic_expr.right());
-      }
-    } break;
-    case ExprType::AGGREGATION: {
-      auto &aggregate_expr = static_cast<AggregateExpr &>(expr);
-      rc = callback(aggregate_expr.child());
-    } break;
-    case ExprType::LIKE: {
-      auto &like_expr = static_cast<LikeExpr &>(expr);
-      rc              = callback(like_expr.sExpr());
-      if (OB_SUCC(rc)) {
-        rc = callback(like_expr.pExpr());
-      }
-    } break;
-    case ExprType::VECTOR_DISTANCE_EXPR: {
-      auto &vde = static_cast<VectorDistanceExpr &>(expr);
-      rc                    = callback(vde.left());
-      if (OB_SUCC(rc)) {
-        rc = callback(vde.right());
+        if (arithmetic_expr.right() != nullptr) {
+          rc = callback(arithmetic_expr.right());
+        }
       }
     } break;
 
-    case ExprType::IS: {
-      auto &is_expr = static_cast<IsExpr &>(expr);
-      rc            = callback(is_expr.left());
-      if (OB_SUCC(rc)) {
-        rc = callback(is_expr.right());
+    case ExprType::AGGREGATION: {
+      auto &aggregate_expr = static_cast<AggregateExpr &>(expr);
+      if (aggregate_expr.child() != nullptr) {
+        rc = callback(aggregate_expr.child());
       }
     } break;
-    case ExprType::VALUES:
-    case ExprType::SUB_QUERY:
-    case ExprType::SPECIAL_PLACEHOLDER:
+
     case ExprType::NONE:
     case ExprType::STAR:
     case ExprType::UNBOUND_FIELD:

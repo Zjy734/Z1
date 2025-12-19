@@ -1,41 +1,28 @@
-/* Copyright (c) 2021 OceanBase and/or its affiliates. All rights reserved.
-miniob is licensed under Mulan PSL v2.
-You can use this software according to the terms and conditions of the Mulan PSL v2.
-You may obtain a copy of Mulan PSL v2 at:
-         http://license.coscl.org.cn/MulanPSL2
-THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
-EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
-MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
-See the Mulan PSL v2 for more details.
-By Nelson Boss 2024/10/13
-*/
-
+/*
+ * DateType 定义: 以自1970-01-01的天数(int32_t)存储，可以为负数。
+ */
 #pragma once
 
-#include "common/sys/rc.h"
 #include "common/type/data_type.h"
 
-/**
- * @brief 日期类型
- * @details 使用 int 类型存储, 单位为天，格式为 YYYYMMDD
- * @ingroup DataType
- */
-class DateType : public DataType
-{
+class DateType : public DataType {
 public:
   DateType() : DataType(AttrType::DATES) {}
-
-  virtual ~DateType() = default;
+  virtual ~DateType() {}
 
   int compare(const Value &left, const Value &right) const override;
-  RC  max(const Value &left, const Value &right, Value &result) const;
-  RC  min(const Value &left, const Value &right, Value &result) const;
+  int compare(const Column &left, const Column &right, int left_idx, int right_idx) const override;
 
   RC cast_to(const Value &val, AttrType type, Value &result) const override;
-
-  RC set_value_from_str(Value &val, const string &data) const override;
-
   int cast_cost(AttrType type) override;
 
   RC to_string(const Value &val, string &result) const override;
+  RC set_value_from_str(Value &val, const string &data) const override;
+
+  // 解析 YYYY-MM-DD 字符串为天数，非法返回 RC::SCHEMA_FIELD_TYPE_MISMATCH
+  static RC parse(const string &text, int &days);
+  static bool valid_date(int year, int month, int day);
+  static bool leap_year(int year);
+
+  static void days_to_date(int days, int &year, int &month, int &day);
 };

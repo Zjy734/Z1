@@ -48,41 +48,6 @@ Db::~Db()
   }
   LOG_INFO("Db has been closed: %s", name_.c_str());
 }
-RC Db::drop_table(const char *table_name)
-{
-  if (table_name == nullptr || common::is_blank(table_name)) {
-    LOG_WARN("Invalid table name");
-    return RC::INVALID_ARGUMENT;
-  }
-  
-  // 查找表是否存在
-  auto it = opened_tables_.find(table_name);
-  if (it == opened_tables_.end()) {
-    LOG_WARN("Table not found: %s", table_name);
-    return RC::SCHEMA_TABLE_NOT_EXIST;
-  }
-  
-  Table *table = it->second;
-  
-  // 先从打开的表列表中移除（防止在 destroy 过程中被访问）
-  opened_tables_.erase(it);
-  
-  // 让表自己销毁所有资源（数据文件、索引文件等）
-  RC rc = table->destroy(path_.c_str());
-  if (rc != RC::SUCCESS) {
-    LOG_ERROR("Failed to destroy table: %s, rc=%s", table_name, strrc(rc));
-    // 注意：这里不要重新插入到 opened_tables_，因为表已经处于不一致状态
-    delete table;
-    return rc;
-  }
-  
-  // 释放表对象内存
-  delete table;
-  
-  LOG_INFO("Successfully dropped table: %s", table_name);
-  return RC::SUCCESS;
-}
-
 
 RC Db::init(const char *name, const char *dbpath, const char *trx_kit_name, const char *log_handler_name, const char *storage_engine)
 {
@@ -182,6 +147,86 @@ RC Db::init(const char *name, const char *dbpath, const char *trx_kit_name, cons
     return rc;
   }
 
+  return rc;
+}
+
+RC Db::drop_table(const char *table_name)
+{
+  if (common::is_blank(table_name)) {
+    return RC::INVALID_ARGUMENT;
+  }
+
+  auto it = opened_tables_.find(table_name);
+  if (it == opened_tables_.end()) {
+    return RC::SCHEMA_TABLE_NOT_EXIST;
+  }
+
+  Table *table = it->second;
+
+  // close and delete table object to release buffer/index handles
+  delete table;
+  opened_tables_.erase(it);
+
+  // remove physical files: data, meta, indexes, lob
+  // table meta needed to enumerate indexes, but we've deleted table.
+  // Fortunately, filenames are deterministic. We will glob by pattern.
+  namespace fs = filesystem;
+  RC rc = RC::SUCCESS;
+
+  // remove data file
+  string data_file = table_data_file(path_.c_str(), table_name);
+  if (fs::exists(data_file)) {
+    error_code ec;
+    fs::remove(data_file, ec);
+    if (ec) {
+      LOG_WARN("failed to remove data file: %s, err=%s", data_file.c_str(), ec.message().c_str());
+      rc = RC::FILE_REMOVE; // best-effort but report error
+    }
+  }
+
+  // remove lob file
+  string lob_file = table_lob_file(path_.c_str(), table_name);
+  if (fs::exists(lob_file)) {
+    error_code ec;
+    fs::remove(lob_file, ec);
+    if (ec) {
+      LOG_WARN("failed to remove lob file: %s, err=%s", lob_file.c_str(), ec.message().c_str());
+      rc = RC::FILE_REMOVE;
+    }
+  }
+
+  // remove index files: pattern <table>-*.index
+  fs::path dir(path_);
+  for (auto &p : fs::directory_iterator(dir)) {
+    if (!p.is_regular_file()) continue;
+    auto filename = p.path().filename().string();
+    // endswith .index and startswith table_name + "-"
+    const string prefix = string(table_name) + "-";
+    const string suffix = string(TABLE_INDEX_SUFFIX);
+    if (filename.size() > prefix.size() + suffix.size() &&
+        filename.rfind(suffix) == filename.size() - suffix.size() &&
+        filename.find(prefix) == 0) {
+      error_code ec;
+      fs::remove(p.path(), ec);
+      if (ec) {
+        LOG_WARN("failed to remove index file: %s, err=%s", p.path().c_str(), ec.message().c_str());
+        rc = RC::FILE_REMOVE;
+      }
+    }
+  }
+
+  // remove meta file at last
+  string meta_file = table_meta_file(path_.c_str(), table_name);
+  if (fs::exists(meta_file)) {
+    error_code ec;
+    fs::remove(meta_file, ec);
+    if (ec) {
+      LOG_WARN("failed to remove meta file: %s, err=%s", meta_file.c_str(), ec.message().c_str());
+      rc = RC::FILE_REMOVE;
+    }
+  }
+
+  LOG_INFO("drop table success. table=%s", table_name);
   return rc;
 }
 

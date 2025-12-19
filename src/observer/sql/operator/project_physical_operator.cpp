@@ -19,8 +19,8 @@ See the Mulan PSL v2 for more details. */
 
 using namespace std;
 
-ProjectPhysicalOperator::ProjectPhysicalOperator(vector<unique_ptr<Expression>> &&expressions, int limit)
-    : expressions_(std::move(expressions)), tuple_(expressions_), limit_(limit)
+ProjectPhysicalOperator::ProjectPhysicalOperator(vector<unique_ptr<Expression>> &&expressions)
+  : expressions_(std::move(expressions)), tuple_(expressions_)
 {
 }
 
@@ -31,12 +31,6 @@ RC ProjectPhysicalOperator::open(Trx *trx)
   }
 
   PhysicalOperator *child = children_[0].get();
-
-  if (outer_tuple != nullptr) {
-    LOG_DEBUG("msg from project_phy_oper: we are in subquery");
-    child->set_outer_tuple(outer_tuple);
-  }
-
   RC                rc    = child->open(trx);
   if (rc != RC::SUCCESS) {
     LOG_WARN("failed to open child operator: %s", strrc(rc));
@@ -48,10 +42,9 @@ RC ProjectPhysicalOperator::open(Trx *trx)
 
 RC ProjectPhysicalOperator::next()
 {
-  if (children_.empty() || (limit_ >= 0 && count_ >= limit_)) {
+  if (children_.empty()) {
     return RC::RECORD_EOF;
   }
-  count_++;
   return children_[0]->next();
 }
 

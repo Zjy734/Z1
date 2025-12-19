@@ -28,9 +28,12 @@ class Db;
 class CreateTableStmt : public Stmt
 {
 public:
-  CreateTableStmt(const string &table_name, const vector<AttrInfoSqlNode> &attr_infos, const vector<string> &pks,
-      StorageFormat storage_format)
-      : table_name_(table_name), attr_infos_(attr_infos), primary_keys_(pks), storage_format_(storage_format)
+  CreateTableStmt(const string &table_name,
+      const vector<AttrInfoSqlNode> &attr_infos,
+      const vector<string> &pks,
+      StorageFormat storage_format,
+      bool if_not_exists)
+      : table_name_(table_name), attr_infos_(attr_infos), primary_keys_(pks), storage_format_(storage_format), if_not_exists_(if_not_exists)
   {}
   virtual ~CreateTableStmt() = default;
 
@@ -40,6 +43,7 @@ public:
   const vector<AttrInfoSqlNode> &attr_infos() const { return attr_infos_; }
   const vector<string>          &primary_keys() const { return primary_keys_; }
   const StorageFormat            storage_format() const { return storage_format_; }
+  bool                           if_not_exists() const { return if_not_exists_; }
 
   static RC            create(Db *db, const CreateTableSqlNode &create_table, Stmt *&stmt);
   static StorageFormat get_storage_format(const char *format_str);
@@ -49,4 +53,5 @@ private:
   vector<AttrInfoSqlNode> attr_infos_;
   vector<string>          primary_keys_;
   StorageFormat           storage_format_;
+  bool                    if_not_exists_ = false;
 };

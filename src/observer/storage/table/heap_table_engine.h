@@ -31,13 +31,10 @@ public:
   RC delete_record(const Record &record) override;
   RC insert_record_with_trx(Record &record, Trx *trx) override { return RC::UNSUPPORTED; }
   RC delete_record_with_trx(const Record &record, Trx *trx) override { return RC::UNSUPPORTED; }
-  RC update_record_with_trx(const Record &old_record, const Record &new_record, Trx *trx) override
-  {
-    return RC::UNSUPPORTED;
-  }
+  RC update_record_with_trx(const Record &old_record, const Record &new_record, Trx *trx) override;
   RC get_record(const RID &rid, Record &record) override;
 
-  RC create_index(Trx *trx, const FieldMeta *field_meta, const char *index_name) override;
+  RC create_index(Trx *trx, const vector<const FieldMeta *> &field_metas, const char *index_name) override;
   RC get_record_scanner(RecordScanner *&scanner, Trx *trx, ReadWriteMode mode) override;
   RC get_chunk_scanner(ChunkFileScanner &scanner, Trx *trx, ReadWriteMode mode) override;
   RC visit_record(const RID &rid, function<bool(Record &)> visitor) override;

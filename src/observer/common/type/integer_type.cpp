@@ -15,6 +15,9 @@ See the Mulan PSL v2 for more details. */
 #include "common/value.h"
 #include "storage/common/column.h"
 
+#include <cmath>
+#include <limits>
+
 int IntegerType::compare(const Value &left, const Value &right) const
 {
   ASSERT(left.attr_type() == AttrType::INTS, "left type is not integer");
@@ -66,6 +69,24 @@ RC IntegerType::subtract(const Value &left, const Value &right, Value &result) c
 RC IntegerType::multiply(const Value &left, const Value &right, Value &result) const
 {
   result.set_int(left.get_int() * right.get_int());
+  return RC::SUCCESS;
+}
+
+RC IntegerType::divide(const Value &left, const Value &right, Value &result) const
+{
+  const int rv = right.get_int();
+
+  // 以 NaN 模拟 NULL-like：与 FloatType::divide 保持一致。
+  // 这里不返回 RC 错误，避免表达式整体失败；NULL-like 值后续在 WHERE 中会被当作 false 过滤掉。
+  if (rv == 0) {
+    result.set_type(AttrType::FLOATS);
+    result.set_float(std::numeric_limits<float>::quiet_NaN());
+    return RC::SUCCESS;
+  }
+
+  // 为了和常见数据库一致：整型 / 整型，结果可能是小数，使用 float 表示
+  result.set_type(AttrType::FLOATS);
+  result.set_float(static_cast<float>(left.get_int()) / static_cast<float>(rv));
   return RC::SUCCESS;
 }
 

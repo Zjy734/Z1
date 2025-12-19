@@ -82,6 +82,22 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
     }
   }
 
+  // bind where boolean expression if exists
+  unique_ptr<Expression> bound_where_expr;
+  if (select_sql.where_expr) {
+    vector<unique_ptr<Expression>> where_bound_expressions;
+    RC rc2 = expression_binder.bind_expression(select_sql.where_expr, where_bound_expressions);
+    if (OB_FAIL(rc2)) {
+      LOG_INFO("bind where expression failed. rc=%s", strrc(rc2));
+      return rc2;
+    }
+    if (where_bound_expressions.size() != 1) {
+      LOG_WARN("invalid where expression bound children size: %d", where_bound_expressions.size());
+      return RC::INVALID_ARGUMENT;
+    }
+    bound_where_expr = std::move(where_bound_expressions[0]);
+  }
+
   Table *default_table = nullptr;
   if (tables.size() == 1) {
     default_table = tables[0];
@@ -107,6 +123,9 @@ RC SelectStmt::create(Db *db, SelectSqlNode &select_sql, Stmt *&stmt)
   select_stmt->query_expressions_.swap(bound_expressions);
   select_stmt->filter_stmt_ = filter_stmt;
   select_stmt->group_by_.swap(group_by_expressions);
+  if (bound_where_expr) {
+    select_stmt->where_expr_ = std::move(bound_where_expr);
+  }
   stmt                      = select_stmt;
   return RC::SUCCESS;
 }

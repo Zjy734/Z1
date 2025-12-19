@@ -15,6 +15,7 @@ See the Mulan PSL v2 for more details. */
 #include "condition_filter.h"
 #include "common/log/log.h"
 #include "common/value.h"
+#include "common/type/date_type.h" // for DateType::parse
 #include "storage/record/record_manager.h"
 #include "storage/table/table.h"
 #include <math.h>
@@ -111,7 +112,82 @@ RC DefaultConditionFilter::init(Table &table, const ConditionSqlNode &condition)
   // NOTE：这里没有实现不同类型的数据比较，比如整数跟浮点数之间的对比
   // 但是选手们还是要实现。这个功能在预选赛中会出现
   if (type_left != type_right) {
-    return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    // 简单兼容: int <-> float 比较，统一提升为 float
+    if ((type_left == AttrType::INTS && type_right == AttrType::FLOATS) ||
+        (type_left == AttrType::FLOATS && type_right == AttrType::INTS)) {
+      // 统一使用 FLOATS 类型
+      if (!left.is_attr) {
+        if (type_left == AttrType::INTS) {
+          left.value.set_float(static_cast<float>(left.value.get_int()));
+        }
+      }
+      if (!right.is_attr) {
+        if (type_right == AttrType::INTS) {
+          right.value.set_float(static_cast<float>(right.value.get_int()));
+        }
+      }
+      type_left = type_right = AttrType::FLOATS;
+  } else if ((type_left == AttrType::CHARS && type_right == AttrType::INTS) ||
+         (type_left == AttrType::INTS && type_right == AttrType::CHARS)) {
+      // 允许数字字符串与整数比较: 将字符串尝试转换为整数
+      auto convert_char_to_int = [](Value &val) -> bool {
+        if (val.attr_type() != AttrType::CHARS) return false;
+        std::string s = val.get_string();
+        if (s.empty()) return false;
+        for (char c : s) {
+          if (c < '0' || c > '9') return false;
+        }
+        try {
+          int v = std::stoi(s);
+          val.set_int(v);
+        } catch (...) {
+          return false;
+        }
+        return true;
+      };
+      if (type_left == AttrType::CHARS && left.is_attr == false) {
+        if (!convert_char_to_int(left.value)) return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+        type_left = AttrType::INTS;
+      }
+      if (type_right == AttrType::CHARS && right.is_attr == false) {
+        if (!convert_char_to_int(right.value)) return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+        type_right = AttrType::INTS;
+      }
+      if (type_left != type_right) {
+        return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+      }
+    } else if ((type_left == AttrType::DATES && type_right == AttrType::CHARS) ||
+               (type_left == AttrType::CHARS && type_right == AttrType::DATES)) {
+      // 宽松日期比较：如果是值端的 CHARS，尝试解析为合法日期；成功则提升为 DATES；失败保持 CHARS（比较阶段返回不等）
+      auto try_parse_date = [](Value &val) -> bool {
+        if (val.attr_type() != AttrType::CHARS) return false;
+        std::string s = val.get_string();
+        int days = 0;
+        if (DateType::parse(s, days) == RC::SUCCESS) {
+          val.set_int(days);
+          val.set_type(AttrType::DATES);
+          return true;
+        }
+        return false;
+      };
+      if (!left.is_attr && type_left == AttrType::CHARS && type_right == AttrType::DATES) {
+        if (try_parse_date(left.value)) {
+          type_left = AttrType::DATES;
+        } else {
+          return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+        }
+      }
+      if (!right.is_attr && type_right == AttrType::CHARS && type_left == AttrType::DATES) {
+        if (try_parse_date(right.value)) {
+          type_right = AttrType::DATES;
+        } else {
+          return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+        }
+      }
+      // 若仍不一致，允许进入比较(交给 Value::compare 的 DATE vs CHARS 分支)——不返回错误
+    } else {
+      return RC::SCHEMA_FIELD_TYPE_MISMATCH;
+    }
   }
 
   return init(left, right, type_left, condition.comp);
@@ -136,6 +212,38 @@ bool DefaultConditionFilter::filter(const Record &rec) const
     right_value.set_value(right_.value);
   }
 
+  // LIKE 处理
+  auto like_match = [](const string &text, const string &pattern) -> bool {
+    // 支持 % 与 _，且不匹配单引号字符 '\''
+    // 动态规划通配匹配
+    size_t n = text.size();
+    size_t m = pattern.size();
+    vector<vector<char>> dp(n + 1, vector<char>(m + 1, 0));
+    dp[0][0] = 1;
+    for (size_t j = 1; j <= m; ++j) {
+      if (pattern[j - 1] == '%') dp[0][j] = dp[0][j - 1];
+    }
+    auto char_match = [](char tc, char pc) -> bool {
+      if (pc == '_') {
+        return tc != '\''; // '_' 不匹配单引号
+      }
+      return tc == pc;
+    };
+  for (size_t i = 1; i <= n; ++i) {
+      for (size_t j = 1; j <= m; ++j) {
+        if (pattern[j - 1] == '%') {
+      // % 匹配任意长度(含0)，但不匹配单引号字符
+      dp[i][j] = dp[i][j - 1] || ((text[i - 1] != '\'') && dp[i - 1][j]);
+        } else if (char_match(text[i - 1], pattern[j - 1])) {
+          dp[i][j] = dp[i - 1][j - 1];
+        } else {
+          dp[i][j] = 0;
+        }
+      }
+    }
+    return dp[n][m];
+  };
+
   int cmp_result = left_value.compare(right_value);
 
   switch (comp_op_) {
@@ -145,6 +253,23 @@ bool DefaultConditionFilter::filter(const Record &rec) const
     case LESS_THAN: return cmp_result < 0;
     case GREAT_EQUAL: return cmp_result >= 0;
     case GREAT_THAN: return cmp_result > 0;
+    case LIKE_OP: {
+      if (attr_type_ != AttrType::CHARS) {
+        // 仅支持char
+        return false;
+      }
+      string text  = left_value.get_string();
+      string pat   = right_value.get_string();
+      return like_match(text, pat);
+    }
+    case NOT_LIKE_OP: {
+      if (attr_type_ != AttrType::CHARS) {
+        return false;
+      }
+      string text  = left_value.get_string();
+      string pat   = right_value.get_string();
+      return !like_match(text, pat);
+    }
 
     default: break;
   }

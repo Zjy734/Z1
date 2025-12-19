@@ -29,13 +29,10 @@ FOREACH (F ${ALL_SRC})
 ENDFOREACH (F)
 
 SET(LIBEVENT_STATIC_LINK TRUE)
-# 注释掉原来的 FIND_PACKAGE，使用更简单的方式
-# FIND_PACKAGE(Libevent CONFIG REQUIRED)
+FIND_PACKAGE(Libevent CONFIG REQUIRED)
 FIND_PACKAGE(jsoncpp CONFIG REQUIRED)
 
-# 直接链接 Libevent 库（假设系统已安装）
-SET(LIBRARIES common pthread dl event_core event_pthreads)
-
+SET(LIBRARIES common pthread dl libevent::core libevent::pthreads)
 
 # 指定目标文件位置
 SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)

@@ -49,23 +49,6 @@ public:
   explicit Value(bool val);
   explicit Value(const char *s, int len = 0);
   explicit Value(const string_t &val);
-  
-  static Value from_date(int date_value) {
-    Value v;
-    v.set_date(date_value);
-    return v;
-  }
-
-  static Value from_date(const char* date_str) {
-  int date_value = 0;
-  if (date_str != nullptr) {
-    int year, month, day;
-    if (sscanf(date_str, "%d-%d-%d", &year, &month, &day) == 3) {
-      date_value = year * 10000 + month * 100 + day;
-    }
-  }
-  return from_date(date_value);
-}
 
   Value(const Value &other);
   Value(Value &&other);
@@ -130,44 +113,6 @@ public:
   string   get_string() const;
   string_t get_string_t() const;
   bool     get_boolean() const;
-  bool is_date_valid() const {
-  if (attr_type_ != AttrType::DATES) {
-    return false;
-  }
-  
-  int date = value_.int_value_;
-  int year = date / 10000;
-  int month = (date % 10000) / 100;
-  int day = date % 100;
-  
-  // 检查月份范围
-  if (month < 1 || month > 12) {
-    return false;
-  }
-  
-  // 检查日期范围
-  if (day < 1 || day > 31) {
-    return false;
-  }
-  
-  // 检查每月天数
-  int days_in_month[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-  
-  // 闰年判断
-  if (month == 2) {
-    bool is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-    if (is_leap) {
-      days_in_month[2] = 29;
-    }
-  }
-  
-  if (day > days_in_month[month]) {
-    return false;
-  }
-  
-  return true;
-}
-
 
 public:
   void set_int(int val);
@@ -175,12 +120,6 @@ public:
   void set_string(const char *s, int len = 0);
   void set_empty_string(int len);
   void set_string_from_other(const Value &other);
-  void set_date(int val)  // ← 添加这个方法
-  {
-    attr_type_ = AttrType::DATES;
-    value_.int_value_ = val;
-    own_data_ = true;
-  }
 
 private:
   AttrType attr_type_ = AttrType::UNDEFINED;

@@ -271,8 +271,11 @@ char *substr(const char *s, int n1, int n2)
 string double_to_str(double v)
 {
   char buf[256];
-  double rounded_v = round(v * 100.0) / 100.0;
-  snprintf(buf, sizeof(buf), "%.2f", rounded_v);
+  // 只做一次四舍五入：printf("%.2f") 本身会按当前 rounding mode 完成舍入。
+  // 之前的实现是先 round(v*100)/100 再 printf("%.2f")，会引入“二次舍入”问题，
+  // 典型现象：245.165(来自 float->double 的近似值) 可能先被 round 成 245.16，最终输出 245.16，
+  // 而期望结果是 245.17。
+  snprintf(buf, sizeof(buf), "%.2f", v);
   size_t len = strlen(buf);
   while (buf[len - 1] == '0') {
     len--;

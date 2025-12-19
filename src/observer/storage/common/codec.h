@@ -433,6 +433,12 @@ public:
           LOG_WARN("append failed");
         }
         break;
+      case AttrType::DATES:
+        // DATE 内部即为int天数，按 int64 编码以保证顺序
+        if (OB_FAIL(OrderedCode::append(dst, (int64_t)val.get_int()))) {
+          LOG_WARN("append failed");
+        }
+        break;
       default: return RC::INVALID_ARGUMENT;
     }
     return rc;
